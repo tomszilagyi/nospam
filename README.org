@@ -1,0 +1,286 @@
+#+TITLE: NOSPAM naive Bayesian spam classifier
+#+EMAIL: tom@icss.hu
+#+OPTIONS: email:t ^:{}
+
+* Background and motivation
+
+Naive Bayesian filtering has been first proposed as an effective way
+to combat spam mail by Paul Graham in 2002 in his article [[http://www.paulgraham.com/spam.html][A Plan for
+Spam]] (see also his follow-up article [[http://www.paulgraham.com/better.html][Better Bayesian Filtering]]).
+
+=NOSPAM= is a relatively straightforward implementation of the ideas
+laid out in the above articles; whenever possible, it also aims to
+faithfully reproduce the specifics that lie therein.
+
+We assume the reader is familiar with at least the general ideas laid
+out in the above two articles; we will not reiterate them here.
+
+* Prerequisites
+
+=NOSPAM= is written in Common Lisp with some reliance on SBCL-specific
+extensions: for signal handling; to provide an exit code to the OS;
+and most importantly to produce an executable image of Lisp that
+serves as a stand-alone mail classifier filter. For this reason a
+recent version (> 1.1) of the Common Lisp implementation [[http://sbcl.org][SBCL]] (Steel
+Bank Common Lisp) is required with the =:SB-CORE-COMPRESSION= feature
+(this symbol must be present in the list you get when you type
+=*features*= in the REPL).
+
+The Lisp application is designed for operating in a UNIX-like
+environment. Mail is read from standard input, and the OS-level return
+value of the program can be used to discriminate spam messages: the
+return code is 0 if =NOSPAM= thinks the text is non-spam and 1 if it
+is likely that it is spam. In addition, some information is printed to
+standard output showing the most interesting tokens and the overall
+spam probability.
+
+* Configuration
+
+=NOSPAM= requires the presence of a file named =nospam.conf= in the
+user's home directory. This file must contain the definitions of what
+we call mail corpuses - collections of files containing non-spam (ham)
+and spam mail. An example configuration is shown below:
+
+#+BEGIN_EXAMPLE
+;;;; NOSPAM configuration:
+;;;; Definition of ham and spam mail corpuses
+
+(defcorpus *ham* :ham (
+	   ("mail"
+	    ("andrea" "cron" "newsletters" "private" "sent" "tom" "work"))
+
+   	   ("mail/archive"
+	    ("2010" "2011"))
+))
+
+(defcorpus *spam* :spam (
+	   ("mail/spam" ("spam" "gmail-spam" "import-1" "import-2"))
+))
+#+END_EXAMPLE
+
+This is a config file with Lisp syntax. Each corpus (ham and spam) can
+consist of any number of files in multiple directories. Here I have a
+directory called =mail= in my home directory and the files =andrea=,
+=cron= etc. are those that contain actual email (they are /folders/ as
+seen from my mail client). I also have a directory =mail/archive=
+under which there are files called =2010=, =2011= -- again, these are
+the folders I have mail in, but they are files at the OS level.
+
+The other corpus contains all spam messages I have, stored under the
+=mail/spam= directory. I have =spam= for the spam arriving to my work
+account (filtered by =NOSPAM=) and I also have the spam arriving to my
+gmail account downloaded into =gmail-spam=. Finally, to increase the
+universe of spam messages I have downloaded two spam collections from
+the SpamAssassin project -- these are in the files =import-1= and
+=import-2=.
+
+There must be exactly one ham and one spam corpus defined, but each
+can contain an arbitrary number of entries. The directory components
+of the entries (=mail=, =mail/archive=, =mail/spam=) are interpreted
+relative to the user's home directory. If needed, absolute pathnames
+(starting with =/=) can be used as well.
+
+The config file is referenced when building or rebuilding the
+classifier (see below); it is not referenced when running it.
+
+* Building the classifier
+
+With the above configuration in place, we can build a classifier based
+on the content of our mail corpuses. This will read through all our
+mail, tokenize it and build large internal hash-tables of the tokens
+found in the spam and non-spam messages.
+
+To build the classifier, just load the Lisp source into SBCL:
+
+#+BEGIN_EXAMPLE
+$ sbcl --load nospam.lisp
+
+...
+
+NOSPAM naive Bayesian spam classifier
+
+Reading HAM mailboxes, please wait...
+  andrea config cron newsletters private sent tom work 2010 2011 7471
+
+Reading SPAM mailboxes, please wait...
+  spam gmail-spam import-1 import-2 1867
+#+END_EXAMPLE
+
+The numbers after the lists of mailboxes are the total number of
+emails processed in that corpus; they are constantly updated while
+parsing the corpuses so they act as a progress indicator. The output
+continues:
+
+#+BEGIN_EXAMPLE
+Unique tokens from HAM :   213551
+Unique tokens from SPAM:   100842
+Total tokens recognized:   295841
+
+Creating executable image and exiting...
+
+[undoing binding stack and other enclosing state... done]
+[saving current Lisp image into nospam:
+writing 5680 bytes from the read-only space at 0x0x20000000
+compressed 32768 bytes into 1962 at level -1
+writing 3120 bytes from the static space at 0x0x20100000
+compressed 32768 bytes into 881 at level -1
+writing 115179520 bytes from the dynamic space at 0x0x1000000000
+compressed 115179520 bytes into 20527547 at level -1
+done]
+#+END_EXAMPLE
+
+Note that due to overlaps, the number of unique tokens in total is
+less than the sum of those found in the two corpuses, but not by
+much. This is typical and a sign that there is good separation between
+the content of the two corpuses.
+
+Also note that the image is compressed from 115 megabytes to 20.5, so
+obtaining (compiling from source) an SBCL with core compression
+support is really worth the trouble. (If you cannot do that, look for
+=sb-ext:save-lisp-and-die= in =nospam.lisp= and change the argument
+=:compression t= to =:compression nil=.)
+
+The result is an executable file =nospam= that is standalone and
+completely independent of the SBCL installation that created it. It
+acts as a UNIX filter: expects to be able to read an email message on
+its standard input, writes some human-readable text to its standard
+output and exits with a return code of 1 if it thinks what it has seen
+is spam and 0 otherwise.
+
+You can try it for yourself:
+
+#+BEGIN_EXAMPLE
+$ ./nospam < nonspam.txt
+
+Most interesting tokens (of 87 total):
+  mérete                               0.01       19        0
+  változik                             0.01       17        0
+  tehát                                0.01      386        0
+  Maga                                 0.01       39        0
+  méret                                0.01       11        0
+  jó                                   0.01      967        0
+  szerintem                            0.01     1143        0
+  még                                  0.01     1573        2
+  -ba                                  0.01        4        0
+  emacs                                0.01        7        0
+  2010                                 0.01     3489        2
+  1.5.21                               0.01      265        0
+  User-Agent                           0.01     4687        6
+  zoso                                 0.01      241        1
+  loc                                  0.01      818        0
+
+Spam probability: 1.1627112e-30
+
+$ echo $?
+0
+#+END_EXAMPLE
+
+The numbers displayed for each token are: spam probability of message
+based on presence of this token; number of occurrences in non-spam
+corpus; number of occurrences in spam corpus.
+
+Now let's try a spam message:
+
+#+BEGIN_EXAMPLE
+$ ./nospam < spam.txt
+
+Most interesting tokens (of 326 total):
+  Url*NETNOTEINC                       0.99        0       38
+  Url*COM                              0.99        0       39
+  Url*jm                               0.99        0       90
+  Url*em                               0.99        0       39
+  removal                              0.99        1      154
+  Paragraph                            0.99        0       34
+  Congress                             0.99        0       62
+  TITLE                                0.99        6      323
+  1618                                 0.99        0       70
+  Facts                                0.99        0       33
+  Lean                                 0.99        0        5
+  Disappearance                        0.99        0       18
+  Wrinkle                              0.99        0       35
+  Hair                                 0.99        0       26
+  Erection                             0.99        0        7
+
+Spam probability: 1.0
+
+$ echo $?
+1
+#+END_EXAMPLE
+
+* Deploying
+
+At this point, the only thing left is to deploy the executable into
+our mail infrastructure. This is especially easy if you already use
+=procmail= for your incoming mail. Place the =nospam= executable in a
+suitable place (I like to put such things under =$HOME/bin/=). Then,
+add the following recipe to your =.procmailrc=:
+
+#+BEGIN_EXAMPLE
+ # NOSPAM spam filter
+
+ :0 Wic
+ | $HOME/bin/nospam
+ SPAMP=$?
+
+ :0
+ * SPAMP ?? 1
+ spam/spam
+#+END_EXAMPLE
+
+This is really two recipes. The first one pipes the mail into the
+=nospam= program we just created, and sets the variable =SPAMP= (which
+stands for spam-predicate) according to the return value (exit code)
+of =nospam=. The second recipe then looks at the =SPAMP= variable and
+delivers the mail into =spam/spam= if the variable is 1, which means
+that in the previous recipe =nospam= returned 1 so we are quite sure
+that it's spam.
+
+Note that in our procmail environment =MAILDIR= is =$HOME/mail=, so
+the =spam/spam= is the same mail folder as the =spam= file in the
+=mail/spam= directory as configured in the spam corpus above. Make
+sure to adapt it to your specific setup.
+
+The above snippet should be placed /after/ all recipes that sort your
+incoming mail into folders: if you identified a mail as coming from a
+certain mailing list you subscribe to (or has some other feature based
+on which you collect it to a certain folder) then you certainly do
+/not/ want to feed it to the spam filter.
+
+Likewise, if you have a =vacation=-style auto-responder set up via
+procmail, you want to put the above recipes /before/ that, since you
+certainly don't want to autorespond to any spam, do you?
+
+* Rebuilding
+
+Now, your mail is getting automatically filtered -- most spam will
+probably go to the spam folder by itself, while some will be probably
+missed. (You shove them in there manually from your mail client.) Even
+if your mail folder layout stays the same, it is a good idea to
+rebuild the =nospam= executable time and again so it can take into
+account all the recently added mail in your folders. And in case your
+folders change, you should also do this, because the mail corpuses
+themselves might have changed significantly.
+
+Since you already have an executable, you can use it to rebuild
+itself:
+
+: $ nospam rebuild
+
+In case the argument =rebuild= is given, a fresh tokenization of all
+mail described by your =nospam.conf= is initiated and a new executable
+created.
+
+You can even put this into your crontab so it gets rebuilt each
+weekend (or each night if you tend to get a /lot/ of spam).
+
+* Notes and TODOs
+
+The program is extremely simplistic and has no notion of RFC2822 or
+MIME. This will need to be changed (at least partially).
+
+- Parts with Content-Transfer-Encoding: base64 are entirely skipped
+  (they are mostly binary attachments anyway).
+- Content-Type: charset is not obeyed, all mail is read as utf-8. This
+  will need to be fixed.
+- Content-Transfer-Encoding: quoted-printable is also not decoded,
+  this will also need to be fixed.
