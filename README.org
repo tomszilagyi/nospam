@@ -1,5 +1,5 @@
 #+TITLE: NOSPAM naive Bayesian spam classifier
-#+EMAIL: tom@icss.hu
+#+EMAIL: tomszilagyi@gmail.com
 #+OPTIONS: email:t ^:{}
 
 * Background and motivation
@@ -12,10 +12,10 @@ Spam]] (see also his follow-up article [[http://www.paulgraham.com/better.html][
 laid out in the above articles; whenever possible, it also aims to
 faithfully reproduce the specifics that lie therein.
 
-We assume the reader is familiar with at least the general ideas laid
-out in the above two articles; we will not reiterate them here.
+We assume familiarity with at least the general ideas laid out in the
+above two articles; we will not reiterate them here.
 
-* Prerequisites
+* Prerequisites and environment
 
 =NOSPAM= is written in Common Lisp with some reliance on SBCL-specific
 extensions: for signal handling; to provide an exit code to the OS;
@@ -27,12 +27,14 @@ Bank Common Lisp) is required with the =:SB-CORE-COMPRESSION= feature
 =*features*= in the REPL).
 
 The Lisp application is designed for operating in a UNIX-like
-environment. Mail is read from standard input, and the OS-level return
-value of the program can be used to discriminate spam messages: the
-return code is 0 if =NOSPAM= thinks the text is non-spam and 1 if it
-is likely that it is spam. In addition, some information is printed to
-standard output showing the most interesting tokens and the overall
-spam probability.
+environment where your mail is stored in local [[http://www.qmail.org/man/man5/mbox.html][mbox]] files and incoming
+mail is ideally dispatched to them via =procmail=. When classifying
+incoming new messages, mail is read from standard input, and the
+OS-level return value (exit code) of the program can be used to
+discriminate spam messages: the return value is 0 if =NOSPAM= thinks
+the text is non-spam and 1 if it is likely that it is spam. In
+addition, some information is printed to standard output showing the
+most interesting tokens and the overall spam probability.
 
 * Configuration
 
@@ -47,7 +49,7 @@ and spam mail. An example configuration is shown below:
 
 (defcorpus *ham* :ham (
 	   ("mail"
-	    ("andrea" "cron" "newsletters" "private" "sent" "tom" "work"))
+	    ("cron" "later" "newsletters" "private" "sent" "work"))
 
    	   ("mail/archive"
 	    ("2010" "2011"))
@@ -59,19 +61,20 @@ and spam mail. An example configuration is shown below:
 #+END_EXAMPLE
 
 This is a config file with Lisp syntax. Each corpus (ham and spam) can
-consist of any number of files in multiple directories. Here I have a
-directory called =mail= in my home directory and the files =andrea=,
-=cron= etc. are those that contain actual email (they are /folders/ as
-seen from my mail client). I also have a directory =mail/archive=
-under which there are files called =2010=, =2011= -- again, these are
-the folders I have mail in, but they are files at the OS level.
+consist of any number of mbox files in multiple directories. Here I
+have a directory called =mail= in my home directory and the files
+=cron=, =later= etc. are those that contain actual email (they are
+/folders/ as seen from my mail client). I also have a directory
+=mail/archive= under which there are files called =2010=, =2011= --
+again, these are the folders I have mail in, but they are files at the
+OS level.
 
 The other corpus contains all spam messages I have, stored under the
 =mail/spam= directory. I have =spam= for the spam arriving to my work
 account (filtered by =NOSPAM=) and I also have the spam arriving to my
 gmail account downloaded into =gmail-spam=. Finally, to increase the
 universe of spam messages I have downloaded two spam collections from
-the SpamAssassin project -- these are in the files =import-1= and
+the [[https://spamassassin.apache.org/publiccorpus/][SpamAssassin]] project -- these are in the files =import-1= and
 =import-2=.
 
 There must be exactly one ham and one spam corpus defined, but each
@@ -80,7 +83,7 @@ of the entries (=mail=, =mail/archive=, =mail/spam=) are interpreted
 relative to the user's home directory. If needed, absolute pathnames
 (starting with =/=) can be used as well.
 
-The config file is referenced when building or rebuilding the
+The config file is referenced only when building or rebuilding the
 classifier (see below); it is not referenced when running it.
 
 * Building the classifier
@@ -100,7 +103,7 @@ $ sbcl --load nospam.lisp
 NOSPAM naive Bayesian spam classifier
 
 Reading HAM mailboxes, please wait...
-  andrea config cron newsletters private sent tom work 2010 2011 7471
+  cron later newsletters private sent work 2010 2011 7471
 
 Reading SPAM mailboxes, please wait...
   spam gmail-spam import-1 import-2 1867
@@ -142,10 +145,10 @@ support is really worth the trouble. (If you cannot do that, look for
 
 The result is an executable file =nospam= that is standalone and
 completely independent of the SBCL installation that created it. It
-acts as a UNIX filter: expects to be able to read an email message on
-its standard input, writes some human-readable text to its standard
-output and exits with a return code of 1 if it thinks what it has seen
-is spam and 0 otherwise.
+acts as a UNIX filter: it expects to be able to read an email message
+from its standard input, writes some human-readable text to its
+standard output and exits with a return code of 1 if it thinks what it
+has seen is spam and 0 otherwise.
 
 You can try it for yourself:
 
@@ -227,24 +230,24 @@ add the following recipe to your =.procmailrc=:
  spam/spam
 #+END_EXAMPLE
 
-This is really two recipes. The first one pipes the mail into the
-=nospam= program we just created, and sets the variable =SPAMP= (which
-stands for spam-predicate) according to the return value (exit code)
-of =nospam=. The second recipe then looks at the =SPAMP= variable and
-delivers the mail into =spam/spam= if the variable is 1, which means
-that in the previous recipe =nospam= returned 1 so we are quite sure
-that it's spam.
+This is really two recipes. The first one pipes a copy of the mail
+into the =nospam= program we just created, and sets the variable
+=SPAMP= (which stands for /spam-predicate/) according to the return
+value (exit code) of =nospam=. The second recipe then looks at the
+=SPAMP= variable and delivers the mail into =spam/spam= if the
+variable is 1, which means that in the previous recipe =nospam=
+returned 1 so we are quite sure that it's spam.
 
 Note that in our procmail environment =MAILDIR= is =$HOME/mail=, so
 the =spam/spam= is the same mail folder as the =spam= file in the
 =mail/spam= directory as configured in the spam corpus above. Make
-sure to adapt it to your specific setup.
+sure to adapt this to your specific setup.
 
 The above snippet should be placed /after/ all recipes that sort your
 incoming mail into folders: if you identified a mail as coming from a
-certain mailing list you subscribe to (or has some other feature based
-on which you collect it to a certain folder) then you certainly do
-/not/ want to feed it to the spam filter.
+certain mailing list you subscribe to (or as having some other feature
+based on which you collect it to a certain folder) then you certainly
+do /not/ want to feed it to the spam filter.
 
 Likewise, if you have a =vacation=-style auto-responder set up via
 procmail, you want to put the above recipes /before/ that, since you
@@ -253,22 +256,23 @@ certainly don't want to autorespond to any spam, do you?
 * Rebuilding
 
 Now, your mail is getting automatically filtered -- most spam will
-probably go to the spam folder by itself, while some will be probably
-missed. (You shove them in there manually from your mail client.) Even
-if your mail folder layout stays the same, it is a good idea to
-rebuild the =nospam= executable time and again so it can take into
-account all the recently added mail in your folders. And in case your
-folders change, you should also do this, because the mail corpuses
-themselves might have changed significantly.
+probably end up in the spam folder all by itself, while inevitably
+some will be missed and thus reach your INBOX. (You shove those in the
+spam folder manually from your mail client.) Even if your mail folder
+layout stays the same, it is a good idea to rebuild the =nospam=
+executable time and again so it can take into account all the recently
+added mail (especially the spam) in your folders. And in case your
+folder structure changes, you should also do this, because the mail
+corpuses themselves might have changed significantly.
 
 Since you already have an executable, you can use it to rebuild
 itself:
 
-: $ nospam rebuild
+: ~/bin$ ./nospam rebuild
 
 In case the argument =rebuild= is given, a fresh tokenization of all
 mail described by your =nospam.conf= is initiated and a new executable
-created.
+created (overwriting itself).
 
 You can even put this into your crontab so it gets rebuilt each
 weekend (or each night if you tend to get a /lot/ of spam).
