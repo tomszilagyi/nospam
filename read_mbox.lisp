@@ -77,7 +77,7 @@
 ; returns MIME boundary in case of a multipart/* message and NIL otherwise
 (defun get-mime-boundary (msg)
   (let ((ct (get-content-type msg)))
-    (if (eql 0 (search "multipart" (car (car ct))))
+    (if (eql 0 (search "multipart" (car (car ct)) :test #'char-equal))
 	(trim-quot (cadr (car (member "boundary" ct :test #'string-equal :key #'car)))))))
 
 (defun decode-hexdigit (val)
@@ -102,22 +102,16 @@
 	(setf *qp-buf* #())
 	(format nil "~A~%" s))
       ""))
-;    (if nl
-;	(format nil "~A~%" s)
-;	s)))
 
 (defun qp-decode-1 (arr i j len encoding)
   (cond ((= i len) (qp-decode-post (subseq arr 0 j) encoding t))
 	((= i (1- len))
 	 (if (= 61 (aref arr i))
-	     (progn
-	       (format t "Büdűslábú törtsor!~%")
-	       (qp-decode-post (subseq arr 0 j) encoding nil))
+	     (qp-decode-post (subseq arr 0 j) encoding nil)
 	     (progn
 	       (setf (aref arr j) (aref arr i))
 	       (qp-decode-post (subseq arr 0 (1+ j)) encoding t))))
 	((= 61 (aref arr i))
-	 ; set j-th element
 	 (setf (aref arr j) (qp-decode-octet arr i))
 	 (qp-decode-1 arr (+ i 3) (1+ j) len encoding))
 	(t
@@ -132,11 +126,6 @@
 	(qp-decode-1 (sb-ext:string-to-octets line :external-format encoding)
 		     0 0 (length line) encoding))))
 
-;(trace qp-decode)
-;(trace qp-decode-1)
-;(setf test "eg=C3=A9sz doksit a telefonon =C3=ADrtam, =C3=A9s")
-;(qp-decode test :UTF-8)
-;(sb-ext:exit)
 
 (defun content-transfer-decode (line msg)
   (let ((encoding (get-encoding msg)))
@@ -164,9 +153,10 @@
   ;(format t "msg-boundary: ~A  boundary: ~A~%" (message-boundary msg) boundary)
   (if (null (message-parent msg))
       msg
-      (if (not (string= boundary (message-boundary (message-parent msg))))
-	  (message-parent msg)
-	  (parent-msg-from-boundary (message-parent msg) boundary))))
+      (if (or (string= boundary (message-boundary msg))
+	      (msg-embedded-rfc822? msg))
+	  (parent-msg-from-boundary (message-parent msg) boundary)
+	  msg)))
 
 (defun read-mail-from-stream (str)
   (do ((line (or *last-from* (read-line-from-stream str)) (read-line-from-stream str))
@@ -234,8 +224,8 @@
 	 ;; end of MIME part
 	 ((and boundary (eql 2 (search (concatenate 'string boundary "--") line)))
 	  (format t "*** end of MIME parts with boundary: ~A~%" boundary)
-	  (setf msg (message-parent msg)
-		msg (parent-msg-from-boundary msg boundary)
+	  (setf msg (message-parent msg))
+	  (setf msg (parent-msg-from-boundary msg boundary)
 		boundary (message-boundary msg))
 
 	  (format t "boundary: ~A~%" boundary)
@@ -250,9 +240,13 @@
 	  ;; if current msg's parent's boundary is this boundary, add sibling to msg
 	  (cond ((string= (message-boundary msg) boundary)
 		 (format t "Adding child to msg~%")
-		 (let ((parent msg))
-		   (setf (message-body parent) (list (make-message))
-			 msg (car (message-body msg))
+		 (let* ((parent msg)
+			(new-msg (make-message))
+			(new-body (if (listp (message-body parent))
+				      (append (message-body parent) (list new-msg))
+				      (list new-msg))))
+		   (setf (message-body parent) new-body
+			 msg new-msg
 			 (message-parent msg) parent)))
 		((string= (message-boundary (message-parent msg)) boundary)
 		 (format t "Adding sibling to msg~%")
@@ -284,7 +278,9 @@
 ;; We must be able to print circular structure without getting stoned
 (setf *print-circle* t)
 
-(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke2")
+(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke4")
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke3")
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke2")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke1")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "h1")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "many-atts")
