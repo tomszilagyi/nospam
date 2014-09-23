@@ -16,14 +16,23 @@
   boundary
   body) ; a body is either a string or a list of message structures
 
+(defun octets-to-str (buf encoding &key (end (length buf)))
+  (or (ignore-errors
+	(handler-bind ((sb-int:character-decoding-error
+			#'(lambda (c)
+			    (declare (ignore c))
+			    (invoke-restart 'use-value #\?))))
+	  (sb-ext:octets-to-string buf :external-format encoding :end end)))
+      ""))
+
 (defvar *linebuf* (make-array *maxlen* :element-type '(unsigned-byte 8)))
 (defun read-line-from-stream (str)
   (do ((o (read-byte str nil 'eof) (read-byte str nil 'eof))
        (i 0 (1+ i)))
-      ((or (eql o 'eof) (eql o 10))
+      ((or (eql o 'eof) (eql o 10) (= i *maxlen*))
        (if (eql o 'eof)
 	   'eof
-	   (sb-ext:octets-to-string *linebuf* :external-format *encoding* :end i)))
+	   (octets-to-str *linebuf* *encoding* :end i)))
     (setf (aref *linebuf* i) o)))
 
 (defun trim-quot (str)
@@ -35,15 +44,19 @@
 ; tokenize:
 ; return list of strings that are separated by sep string in str
 (defun tokenize-1 (str str-len sep sep-len acc)
-  (let ((pos (search sep str))
-	(pos-quot (search "\"" str)))
-    (if (and pos (or (not pos-quot) (< pos pos-quot)))
+  (let* ((pos (search sep str))
+	 (pos-quot (search "\"" str))
+	 (pos-quot2 (or (and pos-quot (search "\"" str :start2 (1+ pos-quot))) 0)))
+    (declare (type (or fixnum null) pos-quot))
+    (if (and pos (or (not pos-quot)
+		     (< pos pos-quot)
+		     (< pos-quot pos-quot2 pos)))
 	(tokenize-1 (subseq str (+ pos sep-len))
 		    (- str-len pos sep-len)
 		    sep
 		    sep-len
-		    (cons (trim-quot (subseq str 0 pos)) acc))
-	(nreverse (cons (trim-quot str) acc)))))
+		    (cons (subseq str 0 pos) acc))
+	(nreverse (cons str acc)))))
 
 (defun tokenize (str sep)
   (let ((str-len (length str))
@@ -58,14 +71,21 @@
 	    (tokenize ct-str ";"))))
 
 (defun get-field (msg getter-fun default)
-  (intern (string-upcase (or (funcall getter-fun msg) default)) "KEYWORD"))
+  (intern (trim-quot (trim-blank (string-upcase (or (funcall getter-fun msg) default))))
+	  "KEYWORD"))
 
-(defun get-encoding (msg)
+(defun get-encoding-1 (msg)
   (get-field msg
 	     #'(lambda (m)
 		 (cadr (car (member "charset" (message-content-type m)
 				    :test #'string-equal :key #'car))))
 	     "us-ascii"))
+
+(defun get-encoding (msg)
+  (let ((enc (get-encoding-1 msg)))
+    (cond ((in enc :big5 :gb2312 :default_charset :x-unknown) :us-ascii)
+	  ((eq enc :windows-1254) :iso-8859-9)
+	  (t enc))))
 
 (defun get-content-transfer-encoding (msg)
   (get-field msg
@@ -86,19 +106,20 @@
 	((and (>= val (char-code #\A)) (<= val (char-code #\F)))
 	 (+ 10 (- val (char-code #\A))))
 	((and (>= val (char-code #\a)) (<= val (char-code #\f)))
-	 (+ 10 (- val (char-code #\a))))))
+	 (+ 10 (- val (char-code #\a))))
+	(t (char-code #\A))))
 
 (defun qp-decode-octet (arr i)
-  (+ (* 16 (decode-hexdigit (aref arr (1+ i))))
-     (decode-hexdigit (aref arr (+ i 2)))))
+  (logand 255 (+ (* 16 (decode-hexdigit (aref arr (1+ i))))
+		 (decode-hexdigit (aref arr (+ i 2))))))
 
 (defvar *qp-buf* #())
 (defun qp-decode-post (arr encoding nl)
   (setf *qp-buf* (concatenate 'vector *qp-buf* arr))
   (if nl
-      (let ((s (sb-ext:octets-to-string
+      (let ((s (octets-to-str
 		(coerce *qp-buf* '(vector (unsigned-byte 8)))
-		:external-format encoding)))
+		encoding)))
 	(setf *qp-buf* #())
 	(format nil "~A~%" s))
       ""))
@@ -107,11 +128,12 @@
   (cond ((= i len) (qp-decode-post (subseq arr 0 j) encoding t))
 	((= i (1- len))
 	 (if (= 61 (aref arr i))
-	     (qp-decode-post (subseq arr 0 j) encoding nil)
+	     (qp-decode-post (subseq arr 0 j) encoding
+			     (or (= i 0) (= 61 (aref arr (1- i)))))
 	     (progn
 	       (setf (aref arr j) (aref arr i))
 	       (qp-decode-post (subseq arr 0 (1+ j)) encoding t))))
-	((= 61 (aref arr i))
+	((and (< i (- len 2)) (= 61 (aref arr i)) (not (= 61 (aref arr (1+ i)))))
 	 (setf (aref arr j) (qp-decode-octet arr i))
 	 (qp-decode-1 arr (+ i 3) (1+ j) len encoding))
 	(t
@@ -185,8 +207,6 @@
 	     status 'body)
        (if (message-boundary msg)
 	   (setf boundary (message-boundary msg)))
-;       (if (not (eql (message-content-transfer-encoding msg) :quoted-printable))
-;	   (setf *encoding* (get-encoding msg)))
        (format t "(get-mime-boundary msg): ~A~%" boundary)
        (if (msg-embedded-rfc822? msg)
 	   ;; embedded message -- add new child msg
@@ -261,8 +281,11 @@
 	 ((and (not (message-p (message-body msg)))
 	       (not (eql (message-content-transfer-encoding msg) :base64)))
 	  (format t "~A: ~A~%" status line)
-	  (setf (message-body msg) (concatenate 'string (message-body msg)
-						(content-transfer-decode line msg)))))))
+	  (if (or (null (message-body msg)) (stringp (message-body msg)))
+	      (setf (message-body msg) (concatenate 'string (message-body msg)
+						    (content-transfer-decode line msg)))
+	      (format t "throwing away: ~A~%" line)
+	      )))))
     ))
 
 (defun read-mailbox (path mailbox)
@@ -271,14 +294,19 @@
 		       :element-type '(unsigned-byte 8))
     (do ((m (read-mail-from-stream str) (read-mail-from-stream str)))
 	((null m))
-      (format t "msg: ~A~%" m)      
+      (format t "msg: ~A~%" m)
       )))
 
 
 ;; We must be able to print circular structure without getting stoned
 (setf *print-circle* t)
 
-(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke4")
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "qpdec-choke")
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "endless-loop")
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "overlong-line")
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "fuzzy-charset")
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "illegal-char")
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke4")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke3")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke2")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "choke1")
@@ -290,7 +318,19 @@
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "mbox1")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "mbox2")
 
+;(read-mailbox "/xenon/tom/mail" "BME")
+;(read-mailbox "/xenon/tom/mail" "IBM")
+;(read-mailbox "/xenon/tom/mail" "IC")
+;(read-mailbox "/xenon/tom/mail" "ICSS")
+;(read-mailbox "/xenon/tom/mail" "ICSS-priv")
+;(read-mailbox "/xenon/tom/mail" "Robot.priv")
 ;(read-mailbox "/xenon/tom/mail" "Robot.proj")
+;(read-mailbox "/xenon/tom/mail" "Robot.sw")
+;(read-mailbox "/xenon/tom/mail" "Private")
+;(read-mailbox "/xenon/tom/mail/spam" "spam")
+;(read-mailbox "/xenon/tom/mail/spam" "gmail-spam")
+;(read-mailbox "/xenon/tom/mail/spam" "import-1")
+;(read-mailbox "/xenon/tom/mail/spam" "import-2")
 
 ;    (do ((line (read-line-from-stream str) (read-line-from-stream str)))
 ;	((eql line 'eof))
