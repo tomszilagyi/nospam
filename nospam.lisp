@@ -1,3 +1,5 @@
+(load "macros.lisp")
+
 (defstruct corpus
   type         ; :ham or :spam
   mboxes       ; list structure of mailboxes
@@ -18,22 +20,6 @@
 (defparameter bufsize 1024)
 (defvar *emit-tokens* t)
 (defvar *silent* nil)
-
-;;;; Macro facilities
-
-(defmacro for (var start stop &body body)
-  (let ((gstop (gensym)))
-    `(do ((,var ,start (1+ ,var))
-	  (,gstop ,stop))
-	 ((> ,var ,gstop))
-       ,@body)))
-
-(defmacro in (obj &rest choices)
-  (let ((insym (gensym)))
-    `(let ((,insym ,obj))
-       (or ,@(mapcar #'(lambda (c) `(eql ,insym ,c))
-		     choices)))))
-
 
 ;;;; Buffer utilities
 
@@ -244,8 +230,9 @@
     (unless (< (+ g b) 5)
       (max .01
 	   (min .99
-		(float (/ (min 1 (/ b n-spam)) (+ (min 1 (/ g n-ham))
-						  (min 1 (/ b n-spam))))))))))
+		(float (/ (min 1 (/ b n-spam))
+			  (+ (min 1 (/ g n-ham))
+			     (min 1 (/ b n-spam))))))))))
 
 (defun make-token-table (spam-corpus ham-corpus)
   (let* ((ht-spam (corpus-hash-table spam-corpus))
@@ -294,7 +281,7 @@
 	       (let ((p (or (gethash k *token-table*) 0.4)))
 		 (setf (gethash k *hash-table*) p)
 		 (push (list k (abs (- p 0.5))) *toks*)))
-	   *hash-table*)  
+	   *hash-table*)
   (let* ((sorted-toks (sort *toks* #'> :key #'cadr))
 	 (interesting-toks (if (> (length sorted-toks) 15) (subseq sorted-toks 0 15) sorted-toks))
 	 (*toks* (mapcar #'car interesting-toks))

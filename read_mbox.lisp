@@ -1,11 +1,7 @@
+(load "macros.lisp")
+
 (defparameter *maxlen* 1024)
 (defparameter *encoding* :ascii)
-
-(defmacro in (obj &rest choices)
-  (let ((insym (gensym)))
-    `(let ((,insym ,obj))
-       (or ,@(mapcar #'(lambda (c) `(eql ,insym ,c))
-		     choices)))))
 
 (defstruct message
   from
@@ -16,7 +12,7 @@
   boundary
   body) ; a body is either a string or a list of message structures
 
-(defun octets-to-str (buf encoding &key (end (length buf)))
+(defun octets-to-str (buf encoding &key (end nil))
   (or (ignore-errors
 	(handler-bind ((sb-int:character-decoding-error
 			#'(lambda (c)
@@ -172,7 +168,6 @@
 
 ; find appropriate parent message when reaching end of given MIME boundary
 (defun parent-msg-from-boundary (msg boundary)
-  ;(format t "msg-boundary: ~A  boundary: ~A~%" (message-boundary msg) boundary)
   (if (null (message-parent msg))
       msg
       (if (or (string= boundary (message-boundary msg))
@@ -207,7 +202,7 @@
 	     status 'body)
        (if (message-boundary msg)
 	   (setf boundary (message-boundary msg)))
-       (format t "(get-mime-boundary msg): ~A~%" boundary)
+       (dbg t "(get-mime-boundary msg): ~A~%" boundary)
        (if (msg-embedded-rfc822? msg)
 	   ;; embedded message -- add new child msg
 	   (let ((parent msg))
@@ -218,7 +213,7 @@
 
       ;; header continuation line
       ((and (eq status 'header) (in (char line 0) #\Space #\Tab))
-       (format t "~A: ~A~%" status line)
+       (dbg t "~A: ~A~%" status line)
        (let ((v+ (trim-blank line))
 	     (tail (cdr (message-header msg)))
 	     (k (car (car (message-header msg))))
@@ -227,7 +222,7 @@
 
       ;; header line
       ((eq status 'header)
-       (format t "~A: ~A~%" status line)
+       (dbg t "~A: ~A~%" status line)
        (let* ((p (position #\: line))
 	      (k (intern (string-upcase (subseq line 0 p))))
 	      (v (or (ignore-errors (subseq line (+ p 2))) "")))
@@ -243,23 +238,21 @@
 
 	 ;; end of MIME part
 	 ((and boundary (eql 2 (search (concatenate 'string boundary "--") line)))
-	  (format t "*** end of MIME parts with boundary: ~A~%" boundary)
+	  (dbg t "*** end of MIME parts with boundary: ~A~%" boundary)
 	  (setf msg (message-parent msg))
 	  (setf msg (parent-msg-from-boundary msg boundary)
 		boundary (message-boundary msg))
-
-	  (format t "boundary: ~A~%" boundary)
 
 	  (if (null (message-parent msg))
 	      (return msg)))
 
 	 ;; start of new MIME part
 	 ((and boundary (eql 2 (search boundary line)))
-	  (format t "start of new MIME part, boundary: ~A~%" boundary)
+	  (dbg t "start of new MIME part, boundary: ~A~%" boundary)
 	  ;; if current msg's boundary is this boundary, add child to msg
 	  ;; if current msg's parent's boundary is this boundary, add sibling to msg
 	  (cond ((string= (message-boundary msg) boundary)
-		 (format t "Adding child to msg~%")
+		 (dbg t "Adding child to msg~%")
 		 (let* ((parent msg)
 			(new-msg (make-message))
 			(new-body (if (listp (message-body parent))
@@ -269,7 +262,7 @@
 			 msg new-msg
 			 (message-parent msg) parent)))
 		((string= (message-boundary (message-parent msg)) boundary)
-		 (format t "Adding sibling to msg~%")
+		 (dbg t "Adding sibling to msg~%")
 		 (let ((parent (message-parent msg))
 		       (new-msg (make-message)))
 		   (setf (message-body parent) (append (message-body parent) (list new-msg))
@@ -280,13 +273,26 @@
 	 ;; regular body line
 	 ((and (not (message-p (message-body msg)))
 	       (not (eql (message-content-transfer-encoding msg) :base64)))
-	  (format t "~A: ~A~%" status line)
+	  (dbg t "~A: ~A~%" status line)
 	  (if (or (null (message-body msg)) (stringp (message-body msg)))
 	      (setf (message-body msg) (concatenate 'string (message-body msg)
 						    (content-transfer-decode line msg)))
-	      (format t "throwing away: ~A~%" line)
-	      )))))
-    ))
+	      (dbg t "throwing away: ~A~%" line))))))))
+
+(defun header-to-string (msg)
+  (let ((hdr-weed (mapcar (lambda (entry)
+			    (if (in (car entry) 'from 'to 'subject 'return-path)
+				(format nil "~A: ~A~%" (car entry) (cdr entry))))
+			  (message-header msg))))
+    (format nil "~A~%" (apply #'concatenate 'string hdr-weed))))
+
+(defun message-to-strings (msg)
+  (let ((hdr (header-to-string msg))
+	(body (message-body msg)))
+    (cond ((null body) (list hdr))
+	  ((stringp body) (list hdr body))
+	  (t (append (list hdr)
+		     (mapcan #'message-to-strings body))))))
 
 (defun read-mailbox (path mailbox)
   (with-open-file (str (format nil "~A/~A" path mailbox)
@@ -294,7 +300,9 @@
 		       :element-type '(unsigned-byte 8))
     (do ((m (read-mail-from-stream str) (read-mail-from-stream str)))
 	((null m))
-      (format t "msg: ~A~%" m)
+
+      (dolist (s (message-to-strings m))
+	(format t "~A" s))
       )))
 
 
