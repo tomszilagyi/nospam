@@ -4,8 +4,8 @@
 
 * Background and motivation
 
-Naive Bayesian filtering has been first proposed as an effective way
-to combat spam mail by Paul Graham in 2002 in his article [[http://www.paulgraham.com/spam.html][A Plan for
+Naive Bayesian filtering was first proposed as an effective way to
+combat spam mail by Paul Graham in 2002 in his article [[http://www.paulgraham.com/spam.html][A Plan for
 Spam]], later refined in his follow-up article [[http://www.paulgraham.com/better.html][Better Bayesian
 Filtering]]. These articles are widely considered to have established
 the field of content-based probabilistic filtering for email spam and
