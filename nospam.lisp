@@ -252,7 +252,7 @@
     (format t "Copyright 2014 Tom Szilagyi~%~%")
     (format t "NOSPAM comes with ABSOLUTELY NO WARRANTY~%")
     (format t "This is free software, and you are welcome to redistribute it~%")
-    (format t "under certain conditions; see the file COPYING for details~%")
+    (format t "under certain conditions; see the file LICENSE for details~%")
     (load conf)
     (read-corpus *ham*)
     (read-corpus *spam*)

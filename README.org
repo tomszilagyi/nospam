@@ -112,7 +112,7 @@ Copyright 2014 Tom Szilagyi
 
 NOSPAM comes with ABSOLUTELY NO WARRANTY
 This is free software, and you are welcome to redistribute it
-under certain conditions; see the file COPYING for details
+under certain conditions; see the file LICENSE for details
 
 Reading HAM mailboxes, please wait...
   cron later newsletters private sent work 2010 2011 7471
