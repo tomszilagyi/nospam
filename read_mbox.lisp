@@ -1,4 +1,4 @@
-(load "macros.lisp")
+;(load "macros.lisp")
 
 (defparameter *maxlen* 1024)
 (defparameter *encoding* :ascii)
@@ -37,9 +37,9 @@
 (defun trim-blank (str)
   (string-trim '(#\Space #\Tab) str))
 
-; tokenize:
+; split:
 ; return list of strings that are separated by sep string in str
-(defun tokenize-1 (str str-len sep sep-len acc)
+(defun split-1 (str str-len sep sep-len acc)
   (let* ((pos (search sep str))
 	 (pos-quot (search "\"" str))
 	 (pos-quot2 (or (and pos-quot (search "\"" str :start2 (1+ pos-quot))) 0)))
@@ -47,24 +47,24 @@
     (if (and pos (or (not pos-quot)
 		     (< pos pos-quot)
 		     (< pos-quot pos-quot2 pos)))
-	(tokenize-1 (subseq str (+ pos sep-len))
-		    (- str-len pos sep-len)
-		    sep
-		    sep-len
-		    (cons (subseq str 0 pos) acc))
+	(split-1 (subseq str (+ pos sep-len))
+		 (- str-len pos sep-len)
+		 sep
+		 sep-len
+		 (cons (subseq str 0 pos) acc))
 	(nreverse (cons str acc)))))
 
-(defun tokenize (str sep)
+(defun split (str sep)
   (let ((str-len (length str))
 	(sep-len (length sep)))
-    (tokenize-1 str str-len sep sep-len nil)))
+    (split-1 str str-len sep sep-len nil)))
 
 (defun get-content-type (msg)
   (let ((ct-str (or (cdr (car (member 'content-type (message-header msg) :key #'car)))
 		    "text/plain; charset=us-ascii")))
     (mapcar #'(lambda (s)
-		(tokenize (trim-blank s) "="))
-	    (tokenize ct-str ";"))))
+		(split (trim-blank s) "="))
+	    (split ct-str ";"))))
 
 (defun get-field (msg getter-fun default)
   (intern (trim-quot (trim-blank (string-upcase (or (funcall getter-fun msg) default))))
@@ -175,10 +175,10 @@
 	  (parent-msg-from-boundary (message-parent msg) boundary)
 	  msg)))
 
-(defun read-mail-from-stream (str)
+(defun read-mail-from-stream (str &key (init 'init))
   (do ((line (or *last-from* (read-line-from-stream str)) (read-line-from-stream str))
-       (status 'init)
-       (msg nil)
+       (status init)
+       (msg (make-message))
        (boundary nil))
       ((eql line 'eof) (if (msg-empty? msg) nil msg))
 
@@ -280,11 +280,14 @@
 	      (dbg t "throwing away: ~A~%" line))))))))
 
 (defun header-to-string (msg)
-  (let ((hdr-weed (mapcar (lambda (entry)
+  (let ((from (message-from msg))
+	(hdr-weed (mapcar (lambda (entry)
 			    (if (in (car entry) 'from 'to 'subject 'return-path)
 				(format nil "~A: ~A~%" (car entry) (cdr entry))))
 			  (message-header msg))))
-    (format nil "~A~%" (apply #'concatenate 'string hdr-weed))))
+    (if (null from)
+	(format nil "~%~A~%" (apply #'concatenate 'string hdr-weed))
+	(format nil "~A~%~A~%" from (apply #'concatenate 'string hdr-weed)))))
 
 (defun message-to-strings (msg)
   (let ((hdr (header-to-string msg))
@@ -300,11 +303,8 @@
 		       :element-type '(unsigned-byte 8))
     (do ((m (read-mail-from-stream str) (read-mail-from-stream str)))
 	((null m))
-
       (dolist (s (message-to-strings m))
-	(format t "~A" s))
-      )))
-
+	(format t "~A" s)))))
 
 ;; We must be able to print circular structure without getting stoned
 (setf *print-circle* t)
@@ -325,24 +325,3 @@
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "multipart-alt-1")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "mbox1")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "mbox2")
-
-;(read-mailbox "/xenon/tom/mail" "BME")
-;(read-mailbox "/xenon/tom/mail" "IBM")
-;(read-mailbox "/xenon/tom/mail" "IC")
-;(read-mailbox "/xenon/tom/mail" "ICSS")
-;(read-mailbox "/xenon/tom/mail" "ICSS-priv")
-;(read-mailbox "/xenon/tom/mail" "Robot.priv")
-;(read-mailbox "/xenon/tom/mail" "Robot.proj")
-;(read-mailbox "/xenon/tom/mail" "Robot.sw")
-;(read-mailbox "/xenon/tom/mail" "Private")
-;(read-mailbox "/xenon/tom/mail/spam" "spam")
-;(read-mailbox "/xenon/tom/mail/spam" "gmail-spam")
-;(read-mailbox "/xenon/tom/mail/spam" "import-1")
-;(read-mailbox "/xenon/tom/mail/spam" "import-2")
-
-;    (do ((line (read-line-from-stream str) (read-line-from-stream str)))
-;	((eql line 'eof))
-;      (format t "line: ~A~%" line))))
-
-; http://www.cliki.net/CloserLookAtCharacters
-; http://en.wikipedia.org/wiki/MIME

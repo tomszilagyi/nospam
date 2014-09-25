@@ -1,4 +1,5 @@
 (load "macros.lisp")
+(load "read_mbox.lisp")
 
 (defstruct corpus
   type         ; :ham or :spam
@@ -130,15 +131,10 @@
 		       ((and (string= s "Subject") (char= c #\:)) 'tokstate-subject)
 		       ((and (string= s "Return-Path") (char= c #\:)) 'tokstate-rpath)
 		       ((and (string-equal s "http") (char= c #\:)) 'tokstate-url)
-		       ((and (string-equal s "Content-Transfer-Encoding") (char= c #\:))
-			'tokstate-encoding)
 		       (t 'tokstate-init)))
 		((and (string-equal s "http") (char= c #\:)) 'tokstate-url)
 		((and (eql tokstate 'tokstate-url)
 		      (or (not (graphic-char-p c)) (in c #\" #\>)))
-		 'tokstate-init)
-		((and (eql tokstate 'tokstate-encoding) (string-equal s "base64"))
-		 (setf *emit-tokens* nil) ; inhibit tokens until next From (next mail header)
 		 'tokstate-init)
 		(t tokstate)))
 	tokstate)))
@@ -178,7 +174,7 @@
      ;;(format t "Enter HTML comment~%")
      'tokstate-html-comment)
     ((in tokstate 'tokstate-html-in1 'tokstate-html-in2 'tokstate-html-in3)
-     (tokenize 'tokstate-init tokbuf c))
+     (emit 'tokstate-init tokbuf c))
 
     ;; constituent - add it to the token buffer:
     ((or (and (characterp c) (alphanumericp c)) (in c #\- #\' #\! #\$ #\, #\.))
@@ -188,24 +184,22 @@
     ;; separator - emit buffer as token(s):
     (t (emit tokstate tokbuf c))))
 
-(defun getc (str)
-  (handler-bind ((sb-int:stream-decoding-error
-		  (lambda (c)
-		    (declare (ignore c))
-		    (invoke-restart (car (compute-restarts))))))
-    (read-char str nil 'eof)))
-
-(defun read-mail-from-stream (str)
-  (do ((c (getc str) (getc str))
-       (tokstate 'tokstate-colzero (tokenize tokstate tokbuf c))
-       (tokbuf (new-buf bufsize)))
-      ((eql c 'eof) (tokenize tokstate tokbuf c))))
+(defun read-mail (str &key (init 'init))
+  (do ((msg (read-mail-from-stream str :init init) (read-mail-from-stream str :init init)))
+      ((null msg))
+    (dolist (string (message-to-strings msg))
+      (with-input-from-string (s string)
+	(do ((c (read-char s nil 'eof) (read-char s nil 'eof))
+	     (tokstate 'tokstate-colzero (tokenize tokstate tokbuf c))
+	     (tokbuf (new-buf bufsize)))
+	    ((eql c 'eof) (tokenize tokstate tokbuf c)))))))
 
 (defun read-mailfile (path mailbox)
   (format t "~c[6D~A       " #\Esc mailbox) (finish-output nil)
   (with-open-file (str (format nil "~A/~A" path mailbox)
-		       :direction :input :external-format :utf-8)
-    (read-mail-from-stream str)))
+		       :direction :input
+		       :element-type '(unsigned-byte 8))
+    (read-mail str)))
 
 (defun read-corpus (corpus)
   (setf *n-mails* (corpus-n-mails corpus)
@@ -274,7 +268,7 @@
 	*emit-tokens* t
 	*silent* t
 	*toks* nil)
-  (read-mail-from-stream *standard-input*)
+  (read-mail *standard-input* :init 'header)
 
   (maphash #'(lambda (k v)
 	       (declare (ignore v))
