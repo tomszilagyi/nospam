@@ -199,6 +199,7 @@
   (with-open-file (str (format nil "~A/~A" path mailbox)
 		       :direction :input
 		       :element-type '(unsigned-byte 8))
+    (setf *encoding* :ascii)
     (read-mail str)))
 
 (defun read-corpus (corpus)
