@@ -202,7 +202,7 @@
 	     status 'body)
        (if (message-boundary msg)
 	   (setf boundary (message-boundary msg)))
-       (dbg t "(get-mime-boundary msg): ~A~%" boundary)
+       (pr-info t "(get-mime-boundary msg): ~A~%" boundary)
        (if (msg-embedded-rfc822? msg)
 	   ;; embedded message -- add new child msg
 	   (let ((parent msg))
@@ -213,7 +213,7 @@
 
       ;; header continuation line
       ((and (eq status 'header) (in (char line 0) #\Space #\Tab))
-       (dbg t "~A: ~A~%" status line)
+       (pr-dbg t "~A: ~A~%" status line)
        (let ((v+ (trim-blank line))
 	     (tail (cdr (message-header msg)))
 	     (k (car (car (message-header msg))))
@@ -222,7 +222,7 @@
 
       ;; header line
       ((eq status 'header)
-       (dbg t "~A: ~A~%" status line)
+       (pr-dbg t "~A: ~A~%" status line)
        (let* ((p (position #\: line))
 	      (k (intern (string-upcase (subseq line 0 p))))
 	      (v (or (ignore-errors (subseq line (+ p 2))) "")))
@@ -238,22 +238,23 @@
 
 	 ;; end of MIME part
 	 ((and boundary (eql 2 (search (concatenate 'string boundary "--") line)))
-	  (dbg t "*** end of MIME parts with boundary: ~A~%" boundary)
+	  (pr-info t "*** end of MIME parts with boundary: ~A~%" boundary)
 	  (setf msg (message-parent msg))
 	  (setf boundary (message-boundary msg))
 	  (setf msg (parent-msg-from-boundary msg boundary)
 		boundary (message-boundary msg))
+	  (pr-info t "*** new MIME boundary in effect: ~A~%" boundary)
 
 	  (if (null (message-parent msg))
 	      (return msg)))
 
 	 ;; start of new MIME part
 	 ((and boundary (eql 2 (search boundary line)))
-	  (dbg t "start of new MIME part, boundary: ~A~%" boundary)
+	  (pr-info t "start of new MIME part, boundary: ~A~%" boundary)
 	  ;; if current msg's boundary is this boundary, add child to msg
 	  ;; if current msg's parent's boundary is this boundary, add sibling to msg
 	  (cond ((string= (message-boundary msg) boundary)
-		 (dbg t "Adding child to msg~%")
+		 (pr-info t "Adding child to msg~%")
 		 (let* ((parent msg)
 			(new-msg (make-message))
 			(new-body (if (listp (message-body parent))
@@ -263,7 +264,7 @@
 			 msg new-msg
 			 (message-parent msg) parent)))
 		((string= (message-boundary (message-parent msg)) boundary)
-		 (dbg t "Adding sibling to msg~%")
+		 (pr-info t "Adding sibling to msg~%")
 		 (let ((parent (message-parent msg))
 		       (new-msg (make-message)))
 		   (setf (message-body parent) (append (message-body parent) (list new-msg))
@@ -274,11 +275,11 @@
 	 ;; regular body line
 	 ((and (not (message-p (message-body msg)))
 	       (not (eql (message-content-transfer-encoding msg) :base64)))
-	  (dbg t "~A: ~A~%" status line)
+	  (pr-dbg t "~A: ~A~%" status line)
 	  (if (or (null (message-body msg)) (stringp (message-body msg)))
 	      (setf (message-body msg) (concatenate 'string (message-body msg)
 						    (content-transfer-decode line msg)))
-	      (dbg t "throwing away: ~A~%" line))))))))
+	      (pr-warn t "throwing away: ~A~%" line))))))))
 
 (defun header-to-string (msg)
   (let ((from (message-from msg))
@@ -310,6 +311,7 @@
 ;; We must be able to print circular structure without getting stoned
 (setf *print-circle* t)
 
+;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "parse-pdf-att")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "qpdec-choke")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "endless-loop")
 ;(read-mailbox "/xenon/tom/src/lisp/nospam/mail" "overlong-line")

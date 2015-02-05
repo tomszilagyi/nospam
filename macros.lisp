@@ -13,6 +13,21 @@
        (or ,@(mapcar #'(lambda (c) `(eql ,insym ,c))
 		     choices)))))
 
-(defmacro dbg (&body body)
-;  `(format ,@body))
-  nil)
+; debug printouts on different verbosity levels
+(defvar *verbosity* 0)
+
+(defmacro pr-dbg (&body body)
+  `(if (> *verbosity* 2)
+       (format ,@body)))
+
+(defmacro pr-info (&body body)
+  `(if (> *verbosity* 1)
+       (format ,@body)))
+
+(defmacro pr-warn (&body body)
+  `(if (> *verbosity* 0)
+       (format ,@body)))
+
+(defmacro pr-err (&body body)
+  `(if (> *verbosity* -1)
+       (format ,@body)))

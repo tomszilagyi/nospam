@@ -21,6 +21,7 @@
 (defparameter bufsize 1024)
 (defvar *emit-tokens* t)
 (defvar *silent* nil)
+(defvar *load-tables* nil)
 
 ;;;; Buffer utilities
 
@@ -58,6 +59,7 @@
 ;;;; Tokenizer
 
 (defun count-token (tok)
+  (pr-dbg t "tok: ~A~%" tok)
   (let ((toksym (intern tok)))
     (setf (gethash toksym *hash-table*)
 	  (1+ (or (gethash toksym *hash-table*) 0)))))
@@ -199,6 +201,7 @@
 (defun read-mail (str &key (init 'init))
   (do ((msg (read-mail-from-stream str :init init) (read-mail-from-stream str :init 'init)))
       ((null msg))
+    (pr-dbg t "MSG:~%~A~%" msg)
     (dolist (string (message-to-strings msg))
       (with-input-from-string (s string)
 	(do ((c (read-char s nil 'eof) (read-char s nil 'eof))
@@ -256,6 +259,24 @@
     token-probs))
 
 
+(defun save-hashtable (filename hashtable)
+  (with-open-file (str filename
+		       :direction :output
+		       :if-exists :supersede
+		       :if-does-not-exist :create)
+    (maphash (lambda (k v) (print (list k v) str)) hashtable)))
+
+(defun load-hashtable (filename)
+  (let ((hashtable (make-hash-table :test #'eq :size 100000)))
+    (with-open-file (str filename
+			 :direction :input)
+      (do ((pair (read str nil 'eof) (read str nil 'eof)))
+	  ((eql pair 'eof))
+	(destructuring-bind (k v) pair
+	  (setf (gethash k hashtable) v))))
+    hashtable))
+
+
 ;;;; Thy application
 
 (defun nospam-rebuild ()
@@ -271,15 +292,41 @@
     (read-corpus *spam*)
     (setf *token-table* (make-token-table *spam* *ham*))
 
+    ;; write token tables to text files if the --save-tables option was specified
+    (if *load-tables*
+	(progn
+	  (format t "~%~%Saving hashtables to data files... ") (finish-output nil)
+	  (save-hashtable "token-count-ham.dat" (corpus-hash-table *ham*))
+	  (save-hashtable "token-count-spam.dat" (corpus-hash-table *spam*))
+	  (save-hashtable "token-probs.dat" *token-table*)
+	  (format t "done.~%")))
+
     (terpri) (terpri)
     (format t "Unique tokens from HAM :~9d~%" (hash-table-count (corpus-hash-table *ham*)))
     (format t "Unique tokens from SPAM:~9d~%" (hash-table-count (corpus-hash-table *spam*)))
     (format t "Total tokens recognized:~9d~%" (hash-table-count *token-table*))
 
     (format t "~%Creating executable image and exiting...~%~%")
+    (setf *load-tables* nil) ; reset flag value in saved image
     (sb-ext:save-lisp-and-die "nospam" :compression t :executable t :toplevel #'nospam)))
 
 (defun nospam-classify ()
+  ;; If saved token data is loaded (on request only), we can work without a pre-saved lisp image
+  (if *load-tables*
+      (progn
+	(format t "Loading token data... ") (finish-output nil)
+	(defcorpus *ham* :ham nil)
+	(defcorpus *spam* :spam nil)
+	(setf (corpus-hash-table *ham*) (load-hashtable "token-count-ham.dat"))
+	(setf (corpus-hash-table *spam*) (load-hashtable "token-count-spam.dat"))
+	(setf *token-table* (load-hashtable "token-probs.dat"))
+	(format t "done.~%"))
+      (if (not (boundp '*token-table*))
+	  (progn
+	    (format t "~%*** Loading token data not requested via --load-tables~%")
+	    (format t "    and no saved data present in Lisp image, exiting.~%~%")
+	    (sb-ext:exit :code 255))))
+
   (setf *n-mails* 0
 	*hash-table* (make-hash-table :test #'eq :size 1000)
 	*emit-tokens* t
@@ -309,12 +356,26 @@
     (if (> spam-prob 0.9) (sb-ext:exit :code 1) (sb-ext:exit :code 0))))
 
 (defun nospam ()
-  (cond ((and (> (length *posix-argv*) 1)
-	      (string= (cadr *posix-argv*) "rebuild"))
-	 (nospam-rebuild))
-	(t
-	 (nospam-classify))))
+  (let ((action 'classify))
+    (dolist (arg *posix-argv*)
+      (cond ((or (string= arg "-v") (string= arg "--verbose"))
+	     (incf *verbosity*))
+	    ((or (string= arg "-R") (string= arg "--rebuild"))
+	     (setf action 'rebuild))
+	    ((string= arg "--repl")
+	     (setf action 'repl))
+	    ((or (string= arg "-S") (string= arg "--save-tables")
+		 (string= arg "-L") (string= arg "--load-tables"))
+	     (setf *load-tables* t))))
+    (cond ((eq action 'rebuild)
+	   (nospam-rebuild))
+	  ((eq action 'repl)
+	   (format t "~%Creating executable image with REPL...~%~%")
+	   (sb-ext:save-lisp-and-die "nospam-repl" :compression t :executable t))
+	  ((eq action 'classify)
+	   (nospam-classify)))))
 
 
-;;;; Bootstrap in case of initial load (not via saved executable core)
-(nospam-rebuild)
+;;;; Bootstrap in case of initial load (not via saved executable core).
+;;;; Requires --rebuild for first run, but allows better consistency
+(nospam)
