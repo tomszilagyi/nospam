@@ -100,10 +100,11 @@ on the content of our mail corpuses. This will read through all our
 mail, tokenize it and build large internal hash-tables of the tokens
 found in the spam and non-spam messages.
 
-To build the classifier, just load the Lisp source into SBCL:
+To build the classifier, load the Lisp source into SBCL (note the
+extra option =--rebuild= that is actually an option to =nospam= itself):
 
 #+BEGIN_EXAMPLE
-$ sbcl --load nospam.lisp
+$ sbcl --load nospam.lisp --rebuild
 
 ...
 
@@ -282,14 +283,51 @@ corpuses themselves might have changed significantly.
 Since you already have an executable, you can use it to rebuild
 itself:
 
-: ~/bin$ ./nospam rebuild
+: ~/bin$ ./nospam --rebuild
 
-In case the argument =rebuild= is given, a fresh tokenization of all
+In case the argument =--rebuild= is given, a fresh tokenization of all
 mail described by your =nospam.conf= is initiated and a new executable
 created (overwriting itself).
 
 You can even put this into your crontab so it gets rebuilt each
 weekend (or each night if you tend to get a /lot/ of spam).
+
+* Command line options
+
+There are some other command line options recognized. You will
+normally not need to use these, but they may be helpful if you run
+into problems and definitely needed in case you'd like to change the
+program.
+
+| Option                | Description                                                                                                             |
+|-----------------------+-------------------------------------------------------------------------------------------------------------------------|
+| =-R=, =--rebuild=     | Do a rebuild of corpuses and recalculate token probability tables. If not given, classification is attempted.           |
+| =-S=, =--save-tables= | Useful with rebuild; write hash table data to external files.                                                           |
+| =-L=, =--load-tables= | Useful with classification; read hash table data from files (only works if you requested writing it at rebuild time).   |
+| =-v=, =--verbose=     | Increase verbosity. This option may be given up to three times to increase the amount of debugging output.              |
+| =--repl=              | Create an executable Lisp image called =nospam-repl= that has a normal Lisp toplevel; useful for interactive debugging. |
+
+The =--save-tables= and =--load-tables= options are useful for
+development. First, do a rebuild with saving enabled:
+
+: $ sbcl --load nospam.lisp --rebuild --save-tables
+
+This creates some =.dat= files:
+- =token-count-ham.dat=: Token count table from /ham/
+- =token-count-spam.dat=: Token count table from /spam/
+- =token-probs.dat=: Token probability table computed based on the
+  Bayesian theorem
+
+All files are created in the current working directory and that is
+also where they will be expected to be found in case =--load-tables=
+is given:
+
+: $ sbcl --load nospam.lisp --load-tables
+
+Note that with the above, we can quickly test changes to the source
+code (since it gets reloaded on each run) but still use pre-computed
+tables of tokens and not go through a lengthy step of parsing several
+gigabytes of mail.
 
 * Implementation notes
 
