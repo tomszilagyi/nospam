@@ -185,7 +185,7 @@
     (t (emit tokstate tokbuf c))))
 
 (defun read-mail (str &key (init 'init))
-  (do ((msg (read-mail-from-stream str :init init) (read-mail-from-stream str :init init)))
+  (do ((msg (read-mail-from-stream str :init init) (read-mail-from-stream str :init 'init)))
       ((null msg))
     (dolist (string (message-to-strings msg))
       (with-input-from-string (s string)

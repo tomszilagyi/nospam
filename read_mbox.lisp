@@ -240,6 +240,7 @@
 	 ((and boundary (eql 2 (search (concatenate 'string boundary "--") line)))
 	  (dbg t "*** end of MIME parts with boundary: ~A~%" boundary)
 	  (setf msg (message-parent msg))
+	  (setf boundary (message-boundary msg))
 	  (setf msg (parent-msg-from-boundary msg boundary)
 		boundary (message-boundary msg))
 
