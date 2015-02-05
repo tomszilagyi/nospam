@@ -147,6 +147,11 @@
 	'tokstate-colzero
 	new-tokstate)))
 
+;; true for characters considered part of tokens; everything else is a token separator.
+(defun token-constituent-p (c)
+  (or (and (characterp c) (alphanumericp c))
+      (in c #\- #\' #\! #\$ #\, #\.)))
+
 ;; state machine for tokenization
 ;; HTML comments are discarded, they are not even token separators.
 ;; NB. return value will be new tokstate
@@ -173,11 +178,18 @@
     ((and (characterp c) (char= c #\-) (eql tokstate 'tokstate-html-in3))
      ;;(format t "Enter HTML comment~%")
      'tokstate-html-comment)
+    ((and (eql tokstate 'tokstate-html-in1) (token-constituent-p c))
+     ;; Not a comment after all, and the character breaking the comment start pattern
+     ;; after the opening '<' is a token constituent -- be smart not to lose it.
+     ;; The token is broken at this point, though.
+     (emit 'tokstate-init tokbuf #\<)
+     (buf-insert c tokbuf)
+     'tokstate-init)
     ((in tokstate 'tokstate-html-in1 'tokstate-html-in2 'tokstate-html-in3)
      (emit 'tokstate-init tokbuf c))
 
     ;; constituent - add it to the token buffer:
-    ((or (and (characterp c) (alphanumericp c)) (in c #\- #\' #\! #\$ #\, #\.))
+    ((token-constituent-p c)
      (buf-insert c tokbuf)
      tokstate) ; stay in same state
 
