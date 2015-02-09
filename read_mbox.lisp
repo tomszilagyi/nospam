@@ -35,7 +35,7 @@
   (string-trim "\"" str))
 
 (defun trim-blank (str)
-  (string-trim '(#\Space #\Tab) str))
+  (string-trim '(#\Space #\Tab #\Newline #\Return) str))
 
 ; split:
 ; return list of strings that are separated by sep string in str
@@ -77,11 +77,13 @@
 				    :test #'string-equal :key #'car))))
 	     "us-ascii"))
 
+(defun fix-encoding (enc)
+  (cond ((in enc :big5 :gb2312 :default_charset :x-unknown) :us-ascii)
+	((eq enc :windows-1254) :iso-8859-9)
+	(t enc)))
+
 (defun get-encoding (msg)
-  (let ((enc (get-encoding-1 msg)))
-    (cond ((in enc :big5 :gb2312 :default_charset :x-unknown) :us-ascii)
-	  ((eq enc :windows-1254) :iso-8859-9)
-	  (t enc))))
+  (fix-encoding (get-encoding-1 msg)))
 
 (defun get-content-transfer-encoding (msg)
   (get-field msg
@@ -145,12 +147,162 @@
 		     0 0 (length line) encoding))))
 
 
+(defparameter *base64-encode-table*
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+
+(defparameter *base64-decode-table*
+  (let ((da (make-array (list 256)
+			:element-type 'integer
+			:initial-element 0)))
+    (loop for character across *base64-encode-table*
+       for index from 0 below 64
+       do (setf (elt da (char-code character)) index))
+    da))
+
+(defun base64-decode-1 (string)
+  (let ((result (make-array (+ 2 (* 3 (truncate (/ (length string) 4))))
+			    :element-type '(unsigned-byte 8)))
+	(ridx 0))
+    (loop for schar across string
+       for svalue = (elt *base64-decode-table* (char-code schar))
+       with bitstore = 0
+       with bitcount = 0
+       do (unless (null svalue)
+	    (setf bitstore (logior (ash bitstore 6) svalue))
+	    (incf bitcount 6)
+	    (when (>= bitcount 8)
+	      (decf bitcount 8)
+	      (setf (elt result ridx)
+		    (logand (ash bitstore (- bitcount)) #xFF))
+	      (incf ridx)
+	      (setf bitstore (logand bitstore #xFF)))))
+    (subseq result 0 ridx)))
+
+(defun base64-decode (string encoding)
+  (octets-to-str (coerce (base64-decode-1 string) '(vector (unsigned-byte 8))) encoding))
+
+
 (defun content-transfer-decode (line msg)
   (let ((encoding (get-encoding msg)))
     (case (message-content-transfer-encoding msg)
       ((:7bit :8bit :binary) (format nil "~A~%" line))
       (:quoted-printable (qp-decode line encoding))
+      (:base64 (base64-decode line encoding))
       (otherwise (format nil "~A: ~A~%" (message-content-transfer-encoding msg) line)))))
+
+
+(defun mime-decode-word (encoding charset enctext)
+  (let ((charset-sym (fix-encoding (intern (string-upcase charset) "KEYWORD"))))
+    (cond ((string= encoding "Q")
+	   (replace-all (remove #\Newline (qp-decode enctext charset-sym)) "_" " "))
+	  ((string= encoding "B")
+	   (base64-decode enctext charset-sym))
+	  (t enctext))))
+
+; decode MIME encoded words in a line, return decoded string
+(defun mime-decode-line (line)
+  (or (ignore-errors
+	(let* ((start-pos (search "=?" line))
+	       (encoding-pos (search "?" line :start2 (+ 2 start-pos)))
+	       (enctext-pos (search "?" line :start2 (1+ encoding-pos)))
+	       (end-pos (search "?=" line :start2 (1+ enctext-pos)))
+	       (pre-str (subseq line 0 start-pos))
+	       (charset (subseq line (+ 2 start-pos) encoding-pos))
+	       (encoding (subseq line (1+ encoding-pos) enctext-pos))
+	       (enctext (subseq line (1+ enctext-pos) end-pos))
+	       (post-str (subseq line (+ 2 end-pos)))
+	       (post-str1 (if (and (> (length post-str) 3)
+				   (= 0 (or (search " =?" post-str) -1)))
+			      (subseq post-str 1) ;; eat spaces between enc-words
+			      post-str)))
+	  (concatenate 'string
+		       pre-str
+		       (mime-decode-word encoding charset enctext)
+		       (mime-decode-line post-str1))))
+      line))
+
+
+(defparameter *named-html-entities*
+  '((|quot| #\u0022) (|amp| #\u0026) (|apos| #\u0027) (|lt| #\u003C) (|gt| #\u003E) (|nbsp| #\u00A0)
+    (|iexcl| #\u00A1) (|cent| #\u00A2) (|pound| #\u00A3) (|curren| #\u00A4) (|yen| #\u00A5) (|brvbar| #\u00A6)
+    (|sect| #\u00A7) (|uml| #\u00A8) (|copy| #\u00A9) (|ordf| #\u00AA) (|laquo| #\u00AB) (|not| #\u00AC)
+    (|shy| #\u00AD) (|reg| #\u00AE) (|macr| #\u00AF) (|deg| #\u00B0) (|plusmn| #\u00B1) (|sup2| #\u00B2)
+    (|sup3| #\u00B3) (|acute| #\u00B4) (|micro| #\u00B5) (|para| #\u00B6) (|middot| #\u00B7) (|cedil| #\u00B8)
+    (|sup1| #\u00B9) (|ordm| #\u00BA) (|raquo| #\u00BB) (|frac14| #\u00BC) (|frac12| #\u00BD) (|frac34| #\u00BE)
+    (|iquest| #\u00BF) (|Agrave| #\u00C0) (|Aacute| #\u00C1) (|Acirc| #\u00C2) (|Atilde| #\u00C3) (|Auml| #\u00C4)
+    (|Aring| #\u00C5) (|AElig| #\u00C6) (|Ccedil| #\u00C7) (|Egrave| #\u00C8) (|Eacute| #\u00C9) (|Ecirc| #\u00CA)
+    (|Euml| #\u00CB) (|Igrave| #\u00CC) (|Iacute| #\u00CD) (|Icirc| #\u00CE) (|Iuml| #\u00CF) (|ETH| #\u00D0)
+    (|Ntilde| #\u00D1) (|Ograve| #\u00D2) (|Oacute| #\u00D3) (|Ocirc| #\u00D4) (|Otilde| #\u00D5) (|Ouml| #\u00D6)
+    (|times| #\u00D7) (|Oslash| #\u00D8) (|Ugrave| #\u00D9) (|Uacute| #\u00DA) (|Ucirc| #\u00DB) (|Uuml| #\u00DC)
+    (|Yacute| #\u00DD) (|THORN| #\u00DE) (|szlig| #\u00DF) (|agrave| #\u00E0) (|aacute| #\u00E1) (|acirc| #\u00E2)
+    (|atilde| #\u00E3) (|auml| #\u00E4) (|aring| #\u00E5) (|aelig| #\u00E6) (|ccedil| #\u00E7) (|egrave| #\u00E8)
+    (|eacute| #\u00E9) (|ecirc| #\u00EA) (|euml| #\u00EB) (|igrave| #\u00EC) (|iacute| #\u00ED) (|icirc| #\u00EE)
+    (|iuml| #\u00EF) (|eth| #\u00F0) (|ntilde| #\u00F1) (|ograve| #\u00F2) (|oacute| #\u00F3) (|ocirc| #\u00F4)
+    (|otilde| #\u00F5) (|ouml| #\u00F6) (|divide| #\u00F7) (|oslash| #\u00F8) (|ugrave| #\u00F9)
+    (|uacute| #\u00FA) (|ucirc| #\u00FB) (|uuml| #\u00FC) (|yacute| #\u00FD) (|thorn| #\u00FE) (|yuml| #\u00FF)
+    (|OElig| #\u0152) (|oelig| #\u0153) (|Scaron| #\u0160) (|scaron| #\u0161) (|Yuml| #\u0178) (|fnof| #\u0192)
+    (|circ| #\u02C6) (|tilde| #\u02DC) (|Alpha| #\u0391) (|Beta| #\u0392) (|Gamma| #\u0393) (|Delta| #\u0394)
+    (|Epsilon| #\u0395) (|Zeta| #\u0396) (|Eta| #\u0397) (|Theta| #\u0398) (|Iota| #\u0399) (|Kappa| #\u039A)
+    (|Lambda| #\u039B) (|Mu| #\u039C) (|Nu| #\u039D) (|Xi| #\u039E) (|Omicron| #\u039F) (|Pi| #\u03A0)
+    (|Rho| #\u03A1) (|Sigma| #\u03A3) (|Tau| #\u03A4) (|Upsilon| #\u03A5) (|Phi| #\u03A6) (|Chi| #\u03A7)
+    (|Psi| #\u03A8) (|Omega| #\u03A9) (|alpha| #\u03B1) (|beta| #\u03B2) (|gamma| #\u03B3) (|delta| #\u03B4)
+    (|epsilon| #\u03B5) (|zeta| #\u03B6) (|eta| #\u03B7) (|theta| #\u03B8) (|iota| #\u03B9) (|kappa| #\u03BA)
+    (|lambda| #\u03BB) (|mu| #\u03BC) (|nu| #\u03BD) (|xi| #\u03BE) (|omicron| #\u03BF) (|pi| #\u03C0)
+    (|rho| #\u03C1) (|sigmaf| #\u03C2) (|sigma| #\u03C3) (|tau| #\u03C4) (|upsilon| #\u03C5) (|phi| #\u03C6)
+    (|chi| #\u03C7) (|psi| #\u03C8) (|omega| #\u03C9) (|thetasym| #\u03D1) (|upsih| #\u03D2) (|piv| #\u03D6)
+    (|ensp| #\u2002) (|emsp| #\u2003) (|thinsp| #\u2009) (|zwnj| #\u200C) (|zwj| #\u200D) (|lrm| #\u200E)
+    (|rlm| #\u200F) (|ndash| #\u2013) (|mdash| #\u2014) (|lsquo| #\u2018) (|rsquo| #\u2019) (|sbquo| #\u201A)
+    (|ldquo| #\u201C) (|rdquo| #\u201D) (|bdquo| #\u201E) (|dagger| #\u2020) (|Dagger| #\u2021) (|bull| #\u2022)
+    (|hellip| #\u2026) (|permil| #\u2030) (|prime| #\u2032) (|Prime| #\u2033) (|lsaquo| #\u2039)
+    (|rsaquo| #\u203A) (|oline| #\u203E) (|frasl| #\u2044) (|euro| #\u20AC) (|image| #\u2111) (|weierp| #\u2118)
+    (|real| #\u211C) (|trade| #\u2122) (|alefsym| #\u2135) (|larr| #\u2190) (|uarr| #\u2191) (|rarr| #\u2192)
+    (|darr| #\u2193) (|harr| #\u2194) (|crarr| #\u21B5) (|lArr| #\u21D0) (|uArr| #\u21D1) (|rArr| #\u21D2)
+    (|dArr| #\u21D3) (|hArr| #\u21D4) (|forall| #\u2200) (|part| #\u2202) (|exist| #\u2203) (|empty| #\u2205)
+    (|nabla| #\u2207) (|isin| #\u2208) (|notin| #\u2209) (|ni| #\u220B) (|prod| #\u220F) (|sum| #\u2211)
+    (|minus| #\u2212) (|lowast| #\u2217) (|radic| #\u221A) (|prop| #\u221D) (|infin| #\u221E) (|ang| #\u2220)
+    (|and| #\u2227) (|or| #\u2228) (|cap| #\u2229) (|cup| #\u222A) (|int| #\u222B) (|there4| #\u2234)
+    (|sim| #\u223C) (|cong| #\u2245) (|asymp| #\u2248) (|ne| #\u2260) (|equiv| #\u2261) (|le| #\u2264)
+    (|ge| #\u2265) (|sub| #\u2282) (|sup| #\u2283) (|nsub| #\u2284) (|sube| #\u2286) (|supe| #\u2287)
+    (|oplus| #\u2295) (|otimes| #\u2297) (|perp| #\u22A5) (|sdot| #\u22C5) (|lceil| #\u2308) (|rceil| #\u2309)
+    (|lfloor| #\u230A) (|rfloor| #\u230B) (|lang| #\u2329) (|rang| #\u232A) (|loz| #\u25CA) (|spades| #\u2660)
+    (|clubs| #\u2663) (|hearts| #\u2665) (|diams| #\u2666)))
+
+(defvar *html-entities-hashtable*
+  (let ((ht (make-hash-table)))
+    (dolist (pair *named-html-entities*)
+      (destructuring-bind (k v) pair
+	(setf (gethash k ht) v)))
+    ht))
+
+(defun decode-html-entity (entity)
+  (cond ((null entity) "&;")
+	((char= (aref entity 0) #\#)
+	 (if (char= (aref entity 1) #\x)
+	     (string (code-char (parse-integer (subseq entity 2) :radix 16)))
+	     (string (code-char (parse-integer (subseq entity 1) :radix 10)))))
+	((gethash (intern entity) *html-entities-hashtable*)
+	 (string (gethash (intern entity) *html-entities-hashtable*)))
+	(t (format nil "&~A;" entity))))
+
+; we need an accumulator for proper tail recursion to evade heap exhaustion
+(defun decode-html-entities-1 (acc line)
+  (let ((start-pos (search "&" line))
+	(end-pos (search ";" line)))
+    (cond ((or (null start-pos) (null end-pos))
+	   (concatenate 'string acc line))
+	  ((> start-pos end-pos)
+	   (decode-html-entities-1 (concatenate 'string acc (subseq line 0 start-pos))
+				   (subseq line start-pos)))
+	  (t (let* ((pre-str (subseq line 0 start-pos))
+		    (entity (subseq line (1+ start-pos) end-pos))
+		    (post-str (subseq line (1+ end-pos))))
+	       (decode-html-entities-1 (concatenate 'string acc pre-str (decode-html-entity entity))
+				       post-str))))))
+
+; decode html entities of the form &entity; and return decoded string
+; supports named entities as well as base10 and hex encoded codes
+(defun decode-html-entities (line)
+  (decode-html-entities-1 "" line))
 
 
 (defvar *last-from* nil)
@@ -179,7 +331,9 @@
   (do ((line (or *last-from* (read-line-from-stream str)) (read-line-from-stream str))
        (status init)
        (msg (make-message))
-       (boundary nil))
+       (boundary nil)
+       (skip-body nil)
+       (decode-bodyline nil))
       ((eql line 'eof) (if (msg-empty? msg) nil msg))
 
     (setf *last-from* nil)
@@ -187,6 +341,7 @@
     (cond
       ;; start of new mail
       ((and (eq status 'init) (from? line))
+       (pr-warn t "~A~%" line)
        (setf msg (make-message)
 	     (message-from msg) line
 	     *encoding* :ascii
@@ -202,7 +357,18 @@
 	     status 'body)
        (if (message-boundary msg)
 	   (setf boundary (message-boundary msg)))
+       (setf skip-body (not (or (string= "text/plain" (caar (message-content-type msg)))
+				(string= "text/html" (caar (message-content-type msg))))))
+       (setf decode-bodyline
+	     (if (string= "text/html" (caar (message-content-type msg)))
+		 #'(lambda (line msg) (decode-html-entities (content-transfer-decode line msg)))
+		 #'(lambda (line msg) (content-transfer-decode line msg))))
+
        (pr-info t "(get-mime-boundary msg): ~A~%" boundary)
+       (pr-info t "content-type: ~A~%" (message-content-type msg))
+       (pr-info t "content-transfer-encoding: ~A~%" (message-content-transfer-encoding msg))
+       (pr-info t "skip body: ~A~%" skip-body)
+
        (if (msg-embedded-rfc822? msg)
 	   ;; embedded message -- add new child msg
 	   (let ((parent msg))
@@ -273,19 +439,18 @@
 	  (setf status 'header))
 
 	 ;; regular body line
-	 ((and (not (message-p (message-body msg)))
-	       (not (eql (message-content-transfer-encoding msg) :base64)))
-	  (pr-dbg t "~A: ~A~%" status line)
+	 ((and (not skip-body) (not (message-p (message-body msg))))
+	  (pr-info t "~A: ~A~%" status line)
 	  (if (or (null (message-body msg)) (stringp (message-body msg)))
 	      (setf (message-body msg) (concatenate 'string (message-body msg)
-						    (content-transfer-decode line msg)))
-	      (pr-warn t "throwing away: ~A~%" line))))))))
+						    (funcall decode-bodyline line msg)))
+	      (pr-info t "throwing away: ~A~%" line))))))))
 
 (defun header-to-string (msg)
   (let ((from (message-from msg))
 	(hdr-weed (mapcar (lambda (entry)
 			    (if (in (car entry) 'from 'to 'subject 'return-path)
-				(format nil "~A: ~A~%" (car entry) (cdr entry))))
+				(format nil "~A: ~A~%" (car entry) (mime-decode-line (cdr entry)))))
 			  (message-header msg))))
     (if (null from)
 	(format nil "~%~A~%" (apply #'concatenate 'string hdr-weed))

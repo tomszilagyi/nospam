@@ -59,7 +59,7 @@
 ;;;; Tokenizer
 
 (defun count-token (tok)
-  (pr-dbg t "tok: ~A~%" tok)
+  (pr-info t "~A " tok)
   (let ((toksym (intern tok)))
     (setf (gethash toksym *hash-table*)
 	  (1+ (or (gethash toksym *hash-table*) 0)))))
