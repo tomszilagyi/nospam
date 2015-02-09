@@ -332,13 +332,20 @@ gigabytes of mail.
 * Implementation notes
 
 The program correctly parses RFC2822 mail complete with MIME
-structure. However, all parts with a Content-Transfer-Encoding of
-base64 are scrubbed -- these are most likely attachments and spammers
-already avoid sending such content.
+structure. However, all subparts with a Content-Type other than
+text/plain or text/html are skipped completely -- this is most likely
+content that spammers already avoid sending, such as attachments.
+
+The following steps are taken to ensure as much clear text can be
+tokenized as possible:
+- MIME encoded words (both Q- and base64-encoded) are decoded in
+  header fields;
+- Quoted-printable and Base64 content-transfer-encodings are handled;
+- in HTML encoded parts, HTML entities are decoded before tokenization.
 
 There are several possible improvements to be made to the naive
 classification algorithm. Most are outlined in Paul Graham's article
 [[http://www.paulgraham.com/better.html][Better Bayesian Filtering]]. None of these are implemented (yet).
 
-So-called /degeneration/ of tokens (see the above article) is not yet
-implemented by NOSPAM.
+In particular, so-called /degeneration/ of tokens (see the above
+article) is not yet implemented by NOSPAM.
