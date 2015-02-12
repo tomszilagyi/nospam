@@ -1,3 +1,5 @@
+(in-package nospam)
+
 ;;;; Macro facilities
 
 (defmacro for (var start stop &body body)

@@ -1,3 +1,10 @@
+(defpackage "NOSPAM"
+  (:use "COMMON-LISP")
+  (:export "NOSPAM"))
+(in-package nospam)
+
+(import 'sb-ext:*posix-argv*)
+
 (load "macros.lisp")
 (load "read_mbox.lisp")
 

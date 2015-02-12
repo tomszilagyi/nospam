@@ -1,4 +1,4 @@
-;(load "macros.lisp")
+(in-package nospam)
 
 (defparameter *maxlen* 1024)
 (defparameter *encoding* :ascii)
