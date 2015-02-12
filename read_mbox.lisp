@@ -367,10 +367,9 @@
 		 #'(lambda (line msg) (decode-html-entities (content-transfer-decode line msg)))
 		 #'(lambda (line msg) (content-transfer-decode line msg))))
 
-       (pr-info t "(get-mime-boundary msg): ~A~%" boundary)
        (pr-info t "content-type: ~A~%" (message-content-type msg))
        (pr-info t "content-transfer-encoding: ~A~%" (message-content-transfer-encoding msg))
-       (pr-info t "skip body: ~A~%" skip-body)
+       (pr-info t "skip-body: ~A~%" skip-body)
 
        (if (msg-embedded-rfc822? msg)
 	   ;; embedded message -- add new child msg
@@ -407,19 +406,20 @@
 
 	 ;; end of MIME part
 	 ((and boundary (eql 2 (search (concatenate 'string boundary "--") line)))
-	  (pr-info t "*** end of MIME parts with boundary: ~A~%" boundary)
+	  (pr-info t "*** end of MIME parts with boundary: ~A~%~%" boundary)
 	  (setf msg (message-parent msg))
 	  (setf boundary (message-boundary msg))
 	  (setf msg (parent-msg-from-boundary msg boundary)
 		boundary (message-boundary msg))
-	  (pr-info t "*** new MIME boundary in effect: ~A~%" boundary)
 
 	  (if (null (message-parent msg))
-	      (return msg)))
+	      (return msg))
+
+	  (pr-info t "*** new MIME boundary in effect: ~A~%" boundary))
 
 	 ;; start of new MIME part
 	 ((and boundary (eql 2 (search boundary line)))
-	  (pr-info t "start of new MIME part, boundary: ~A~%" boundary)
+	  (pr-info t "~%*** start of new MIME part, boundary: ~A~%" boundary)
 	  ;; if current msg's boundary is this boundary, add child to msg
 	  ;; if current msg's parent's boundary is this boundary, add sibling to msg
 	  (cond ((string= (message-boundary msg) boundary)
@@ -443,11 +443,10 @@
 
 	 ;; regular body line
 	 ((and (not skip-body) (not (message-p (message-body msg))))
-	  (pr-info t "~A: ~A~%" status line)
+	  (pr-dbg t "~A: ~A~%" status line)
 	  (if (or (null (message-body msg)) (stringp (message-body msg)))
 	      (setf (message-body msg) (concatenate 'string (message-body msg)
-						    (funcall decode-bodyline line msg)))
-	      (pr-info t "throwing away: ~A~%" line))))))))
+						    (funcall decode-bodyline line msg))))))))))
 
 (defun header-to-string (msg)
   (let ((from (message-from msg))
