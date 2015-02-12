@@ -286,8 +286,8 @@
 
 ; we need an accumulator for proper tail recursion to evade heap exhaustion
 (defun decode-html-entities-1 (acc line)
-  (let ((start-pos (search "&" line))
-	(end-pos (search ";" line)))
+  (let* ((end-pos (search ";" line))
+	 (start-pos (search "&" line :from-end t :end2 (or end-pos (length line)))))
     (cond ((or (null start-pos) (null end-pos))
 	   (concatenate 'string acc line))
 	  ((> start-pos end-pos)
