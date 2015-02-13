@@ -7,6 +7,7 @@
 
 (load "macros.lisp")
 (load "read_mbox.lisp")
+(load "test.lisp")
 
 (defstruct corpus
   type         ; :ham or :spam
@@ -384,7 +385,6 @@
 	   (format t "~%Creating executable image with REPL...~%~%")
 	   (sb-ext:save-lisp-and-die "nospam-repl" :compression t :executable t :save-runtime-options t))
 	  ((eq action 'test)
-	   (load "test.lisp")
 	   (format t "~%Running tests...~%")
 	   (if (test-nospam)
 	       (progn (format t "~%All test cases passed.~%")
