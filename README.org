@@ -100,11 +100,16 @@ on the content of our mail corpuses. This will read through all our
 mail, tokenize it and build large internal hash-tables of the tokens
 found in the spam and non-spam messages.
 
-To build the classifier, load the Lisp source into SBCL (note the
-extra option =--rebuild= that is actually an option to =nospam= itself):
+To build the classifier, load the Lisp source into SBCL via the below
+command (note the extra option =--rebuild= that is actually an option
+to =nospam= itself).
+
+The option =--dynamic-space-size 4096= will increase the size of the
+heap to 4 GB, which may be needed depending on the amount of mail you
+have (the default heap size is 1 GB).
 
 #+BEGIN_EXAMPLE
-$ sbcl --load nospam.lisp --rebuild
+$ sbcl --dynamic-space-size 4096 --load nospam.lisp --rebuild
 
 ...
 

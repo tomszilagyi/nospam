@@ -314,8 +314,7 @@
     (format t "Total tokens recognized:~9d~%" (hash-table-count *token-table*))
 
     (format t "~%Creating executable image and exiting...~%~%")
-    (setf *load-tables* nil) ; reset flag value in saved image
-    (sb-ext:save-lisp-and-die "nospam" :compression t :executable t :toplevel #'nospam)))
+    (sb-ext:save-lisp-and-die "nospam" :compression t :executable t :save-runtime-options t :toplevel #'nospam)))
 
 (defun nospam-classify ()
   ;; If saved token data is loaded (on request only), we can work without a pre-saved lisp image
@@ -364,6 +363,8 @@
 
 (defun nospam ()
   (in-package nospam)
+  (setf *verbosity* 0
+	*load-tables* nil)
   (let ((action 'classify))
     (dolist (arg *posix-argv*)
       (cond ((or (string= arg "-v") (string= arg "--verbose"))
@@ -379,7 +380,7 @@
 	   (nospam-rebuild))
 	  ((eq action 'repl)
 	   (format t "~%Creating executable image with REPL...~%~%")
-	   (sb-ext:save-lisp-and-die "nospam-repl" :compression t :executable t))
+	   (sb-ext:save-lisp-and-die "nospam-repl" :compression t :executable t :save-runtime-options t))
 	  ((eq action 'classify)
 	   (nospam-classify)))))
 
