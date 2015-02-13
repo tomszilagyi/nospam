@@ -206,6 +206,7 @@
     (t (emit tokstate tokbuf c))))
 
 (defun read-mail (str &key (init 'init))
+  (setf *encoding* :ascii)
   (do ((msg (read-mail-from-stream str :init init) (read-mail-from-stream str :init 'init)))
       ((null msg))
     (pr-dbg t "MSG:~%~A~%" msg)
@@ -221,7 +222,6 @@
   (with-open-file (str (format nil "~A/~A" path mailbox)
 		       :direction :input
 		       :element-type '(unsigned-byte 8))
-    (setf *encoding* :ascii)
     (read-mail str)))
 
 (defun read-corpus (corpus)
