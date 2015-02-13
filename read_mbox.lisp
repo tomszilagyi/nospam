@@ -196,7 +196,7 @@
     (cond ((string= encoding "Q")
 	   (replace-all (remove #\Newline (qp-decode enctext charset-sym)) "_" " "))
 	  ((string= encoding "B")
-	   (base64-decode enctext charset-sym))
+	   (string-trim '(#\Nul) (base64-decode enctext charset-sym)))
 	  (t enctext))))
 
 ; decode MIME encoded words in a line, return decoded string
@@ -412,10 +412,10 @@
 	  (setf msg (parent-msg-from-boundary msg boundary)
 		boundary (message-boundary msg))
 
-	  (if (null (message-parent msg))
-	      (return msg))
+	  (pr-info t "*** new MIME boundary in effect: ~A~%" boundary)
 
-	  (pr-info t "*** new MIME boundary in effect: ~A~%" boundary))
+	  (if (null (message-parent msg))
+	      (return msg)))
 
 	 ;; start of new MIME part
 	 ((and boundary (eql 2 (search boundary line)))

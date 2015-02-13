@@ -106,7 +106,10 @@ to =nospam= itself).
 
 The option =--dynamic-space-size 4096= will increase the size of the
 heap to 4 GB, which may be needed depending on the amount of mail you
-have (the default heap size is 1 GB).
+have (the default heap size is 1 GB). On a total mail corpus of about
+10,000 messages (ham and spam combined), on some machines SBCL will
+drop into LDB with a fatal error if I omit this option. You may or may
+not need it (or may need to increase it ever further).
 
 #+BEGIN_EXAMPLE
 $ sbcl --dynamic-space-size 4096 --load nospam.lisp --rebuild
@@ -311,6 +314,7 @@ program.
 | =-L=, =--load-tables= | Useful with classification; read hash table data from files (only works if you requested writing it at rebuild time).   |
 | =-v=, =--verbose=     | Increase verbosity. This option may be given up to three times to increase the amount of debugging output.              |
 | =--repl=              | Create an executable Lisp image called =nospam-repl= that has a normal Lisp toplevel; useful for interactive debugging. |
+| =-T=, =--test=        | Run the test suite (unit tests in =test.lisp=) and quit. The OS return code is 0 if all tests passed, 255 otherwise.    |
 
 The =--save-tables= and =--load-tables= options are useful for
 development. First, do a rebuild with saving enabled:
