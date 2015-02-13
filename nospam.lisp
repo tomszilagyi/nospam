@@ -363,6 +363,7 @@
     (if (> spam-prob 0.9) (sb-ext:exit :code 1) (sb-ext:exit :code 0))))
 
 (defun nospam ()
+  (in-package nospam)
   (let ((action 'classify))
     (dolist (arg *posix-argv*)
       (cond ((or (string= arg "-v") (string= arg "--verbose"))
